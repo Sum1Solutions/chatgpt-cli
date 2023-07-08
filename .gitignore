@@ -1,4 +1,8 @@
 .history
+.env
+/env
+session-history/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

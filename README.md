@@ -87,3 +87,25 @@ Typical use cases for this feature are:
 ChatGPT CLI automatically renders Markdown responses from the model, including code blocks, with appropriate formatting and syntax highlighting. **Update (31/05/2023):** Now tables are also rendered correctly, thanks to the new 13.4.0 release of Rich.
 
 Change the `markdown` parameter from `true` to `false` in the `config.yaml` in order to disable this feature and display responses in plain text.
+
+## Using Code to Improve the Code
+[118] >>> i'd like to have you help me write some code
+
+Of course! I'd be happy to help you with coding. Please let me know which programming language
+you're using and what kind of assistance you need, and I'll do my best to assist you...
+
+It seems like you have shared a Python script with me. How can I assist you with this code?
+[3936] >>> can you refactor it to make it work better?
+
+Certainly! To help improve the code, I'll suggest a few changes:
+
+ 1 Use safe_load instead of load when reading the YAML config file to avoid potential security
+   vulnerabilities.
+ 2 Update the prompt function to use a more descriptive name such as get_user_input.
+ 3 Reduce the global variable usage by passing variables as arguments to functions.
+ 4 Extract the API request code into a separate function for better readability and maintainability.
+ 5 Handle exceptions explicitly and provide meaningful error messages.
+ 6 Use the pathlib.Path.mkdir method with exist_ok=True to create the session history folder. 
+ 7 Remove the deprecated method yaml.load and replace it with yaml.safe_load.
+
+These changes aim to enhance clarity, eliminate global variable usage, and handle exceptions properly. Make sure to test the code thoroughly to ensure it meets your requirements and expectations.

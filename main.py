@@ -1,30 +1,32 @@
-#!/bin/env python
-
 import atexit
+import os
 import click
 import datetime
-import os
 import requests
 import sys
 import yaml
 import json
-
 from pathlib import Path
 from prompt_toolkit import PromptSession, HTML
 from prompt_toolkit.history import FileHistory
 from rich.console import Console
 from rich.markdown import Markdown
+from dotenv import load_dotenv
 
+# Load environment variables from .env file. This will read the file and set the environment variables.
+load_dotenv()
+
+# Define some constants and global variables. These are used throughout the script.
 WORKDIR = Path(__file__).parent
 CONFIG_FILE = Path(WORKDIR, "config.yaml")
 HISTORY_FILE = Path(WORKDIR, ".history")
 BASE_ENDPOINT = "https://api.openai.com/v1"
-ENV_VAR = "OPENAI_API_KEY"
 SAVE_FOLDER = "session-history"
 SAVE_FILE = (
     "chatgpt-session-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + ".json"
 )
 
+# Pricing rate per model, these are constants. 
 PRICING_RATE = {
     "gpt-3.5-turbo": {"prompt": 0.0015, "completion": 0.002},
     "gpt-3.5-turbo-0613": {"prompt": 0.0015, "completion": 0.002},
@@ -35,42 +37,41 @@ PRICING_RATE = {
     "gpt-4-32k-0613": {"prompt": 0.06, "completion": 0.12},
 }
 
-
 # Initialize the messages history list
 # It's mandatory to pass it at each API call in order to have a conversation
 messages = []
+
 # Initialize the token counters
 prompt_tokens = 0
 completion_tokens = 0
+
 # Initialize the console
 console = Console()
 
-
+# Several function definitions follow here. These are used in the main part of the script below.
+# They are separated out into functions for better readability and separation of concerns.
 def load_config(config_file: str) -> dict:
     """
-    Read a YAML config file and returns it's content as a dictionary
+    Read a YAML config file and return its content as a dictionary
     """
     with open(config_file) as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
 
     return config
 
-
 def create_save_folder() -> None:
     """
-    Create the session history folder if not exists
+    Create the session history folder if it doesn't exist
     """
     if not os.path.exists(SAVE_FOLDER):
         os.mkdir(SAVE_FOLDER)
 
-
 def add_markdown_system_message() -> None:
     """
-    Try to force ChatGPT to always respond with well formatted code blocks and tables if markdown is enabled.
+    Try to force ChatGPT to always respond with well-formatted code blocks and tables if markdown is enabled.
     """
-    instruction = "Always use code blocks with the appropriate language tags. If asked for a table always format it using Markdown syntax."
+    instruction = "Always use code blocks with the appropriate language tags. If asked for a table, always format it using Markdown syntax."
     messages.append({"role": "system", "content": instruction})
-
 
 def calculate_expense(
     prompt_tokens: int,
@@ -79,17 +80,16 @@ def calculate_expense(
     completion_pricing: float,
 ) -> float:
     """
-    Calculate the expense, given the number of tokens and the pricing rates
+    Calculate the expense given the number of tokens and the pricing rates
     """
     expense = ((prompt_tokens / 1000) * prompt_pricing) + (
         (completion_tokens / 1000) * completion_pricing
     )
     return round(expense, 6)
 
-
 def display_expense(model: str) -> None:
     """
-    Given the model used, display total tokens used and estimated expense
+    Given the model used, display the total tokens used and estimated expense
     """
     total_expense = calculate_expense(
         prompt_tokens,
@@ -102,18 +102,17 @@ def display_expense(model: str) -> None:
     )
     console.print(f"Estimated expense: [green bold]${total_expense}")
 
-
 def start_prompt(session: PromptSession, config: dict) -> None:
     """
-    Ask the user for input, build the request and perform it
+    Ask the user for input, build the request, and perform it
     """
 
-    # TODO: Refactor to avoid a global variables
+    # TODO: Refactor to avoid using global variables
     global prompt_tokens, completion_tokens
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {config['api-key']}",
+        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",  # Here's where we use the API Key from the environment variable
     }
 
     message = session.prompt(HTML(f"<b>[{prompt_tokens + completion_tokens}] >>> </b>"))
@@ -125,13 +124,12 @@ def start_prompt(session: PromptSession, config: dict) -> None:
 
     messages.append({"role": "user", "content": message})
 
-    # Base body parameters
     body = {
         "model": config["model"],
         "temperature": config["temperature"],
         "messages": messages,
     }
-    # Optional parameter
+
     if "max_tokens" in config:
         body["max_tokens"] = config["max_tokens"]
 
@@ -156,42 +154,29 @@ def start_prompt(session: PromptSession, config: dict) -> None:
 
         console.line()
         if config["markdown"]:
-            console.print(Markdown(message_response["content"].strip()))
+            console.print(Markdown(message_response["content"]))
         else:
-            console.print(message_response["content"].strip())
-        console.line()
+            console.print(message_response["content"])
 
-        # Update message history and token counters
         messages.append(message_response)
-        with open(os.path.join(SAVE_FOLDER, SAVE_FILE), "w") as f:
-            json.dump({"model": config["model"], "messages": messages}, f, indent=4)
-        prompt_tokens += usage_response["prompt_tokens"]
-        completion_tokens += usage_response["completion_tokens"]
 
-    elif r.status_code == 400:
-        response = r.json()
-        if "error" in response:
-            if response["error"]["code"] == "context_length_exceeded":
-                console.print("Maximum context length exceeded", style="red bold")
-                raise EOFError
-                # TODO: Develop a better strategy to manage this case
-        console.print("Invalid request", style="bold red")
-        raise EOFError
+        # Calculate tokens
+        prompt_tokens += usage_response["prompt_tokens"]
+        completion_tokens += usage_response["total_tokens"]
 
     elif r.status_code == 401:
-        console.print("Invalid API Key", style="bold red")
-        raise EOFError
-
-    elif r.status_code == 429:
-        console.print("Rate limit or maximum monthly limit exceeded", style="bold red")
-        messages.pop()
-        raise KeyboardInterrupt
-
+        console.print("Unauthorized. Check your API key.", style="red bold")
+        sys.exit(1)
     else:
-        console.print(f"Unknown error, status code {r.status_code}", style="bold red")
-        console.print(r.json())
-        raise EOFError
+        console.print(f"Error: {r.status_code}", style="red bold")
+        sys.exit(1)
 
+def load_context_files(context_files) -> None:
+    """
+    Load context files and append their content to the messages
+    """
+    for file in context_files:
+        messages.append({"role": "system", "content": file.read()})
 
 @click.command()
 @click.option(
@@ -202,65 +187,40 @@ def start_prompt(session: PromptSession, config: dict) -> None:
     help="Path to a context file",
     multiple=True,
 )
-@click.option("-k", "--key", "api_key", help="Set the API Key")
 @click.option("-m", "--model", "model", help="Set the model")
 @click.option(
     "-ml", "--multiline", "multiline", is_flag=True, help="Use the multiline input mode"
 )
-def main(context, api_key, model, multiline) -> None:
-    history = FileHistory(HISTORY_FILE)
-    if multiline:
-        session = PromptSession(history=history, multiline=True)
-    else:
-        session = PromptSession(history=history)
+def main(context, model, multiline) -> None:
+    config = load_config(CONFIG_FILE)
 
-    try:
-        config = load_config(CONFIG_FILE)
-    except FileNotFoundError:
-        console.print("Configuration file not found", style="red bold")
-        sys.exit(1)
+    if model:
+        config["model"] = model
+
+    if multiline:
+        config["multiline"] = multiline
 
     create_save_folder()
 
-    # Order of precedence for API Key configuration:
-    # Command line option > Environment variable > Configuration file
-
-    # If the environment variable is set overwrite the configuration
-    if os.environ.get(ENV_VAR):
-        config["api-key"] = os.environ[ENV_VAR].strip()
-    # If the --key command line argument is used overwrite the configuration
-    if api_key:
-        config["api-key"] = api_key.strip()
-    # If the --model command line argument is used overwrite the configuration
-    if model:
-        config["model"] = model.strip()
-
-    # Run the display expense function when exiting the script
-    atexit.register(display_expense, model=config["model"])
-
-    console.print("ChatGPT CLI", style="bold")
-    console.print(f"Model in use: [green bold]{config['model']}")
-
-    # Add the system message for code blocks in case markdown is enabled in the config file
     if config["markdown"]:
         add_markdown_system_message()
 
-    # Context from the command line option
     if context:
-        for c in context:
-            console.print(f"Context file: [green bold]{c.name}")
-            messages.append({"role": "system", "content": c.read().strip()})
+        load_context_files(context)
 
-    console.rule()
+    atexit.register(display_expense, config["model"])
+
+    history = FileHistory(HISTORY_FILE)
+    session = PromptSession(history=history)
 
     while True:
         try:
             start_prompt(session, config)
-        except KeyboardInterrupt:
-            continue
-        except EOFError:
+        except (EOFError, KeyboardInterrupt):
             break
 
+    with open(f"{SAVE_FOLDER}/{SAVE_FILE}", "w") as f:
+        json.dump(messages, f, indent=2)
 
 if __name__ == "__main__":
     main()

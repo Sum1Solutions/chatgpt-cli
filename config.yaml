@@ -1,5 +1,4 @@
-api-key: "INSERT API KEY HERE"
 model: "gpt-3.5-turbo"
-temperature: 1
+temperature: 0
 #max_tokens: 500 
 markdown: true
